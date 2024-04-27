@@ -1,0 +1,274 @@
+---
+title: "NBA Data Analysis"
+output: html_document
+date: "2024-04-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Background
+The data consists of all NBA final score and boxscore at half time for 2023-24 regular season. The goal is to use boxscore information at halftime to predict the final score. The data Source is nba_api (https://github.com/swar/nba_api), and the data were pulled and cleaned separately using Python. 
+
+### Attributes:
+GAME_ID: id of the game
+
+team: the boxscore information of the team
+
+against: the opposing team
+
+s_: all information for starters
+
+b_: all information for bench players
+
+minutes: minutes played
+
+PTS_final: final score by team at end of game
+
+home_away: team is at home or away
+
+PTS_ht: team score at half time
+
+```{r load data}
+library(olsrr)
+library(stats)
+library(leaps)
+library(MASS)
+library(glmnet)
+library(corrplot)
+
+data = read.csv('NBA_2023_halftime_boxscore_data_for_analysis.csv')
+head(data)
+attach(data)
+
+```
+
+### Clean and reformat data
+```{r reformatting data}
+
+# Add s_2PM, s_2PA, b_2PM, and b_2PA and remove s_FGM, s_FGA, b_FGM, and b_FGA since FG includes both 2 pointers and 3 pointers
+data$s_2PM <- data$s_FGM - data$s_3PM
+data$s_2PA <- data$s_FGA - data$s_3PA
+data$b_2PM <- data$b_FGM - data$b_3PM
+data$b_2PA <- data$b_FGA - data$b_3PA
+
+# Create dummy variable, home, for home_away, and drop home_away
+# Also drop GAME_ID
+data$home_away <- as.factor(data$home_away)
+home = rep(1, nrow(data))
+home[as.numeric(data$home_away)==1] = 0
+data$home <- home
+data = subset(data, select = -c(s_FGM, s_FGA, b_FGM, b_FGA, home_away, GAME_ID))
+
+data$team <- as.factor(data$team)
+data$against <- as.factor(data$against)
+
+```
+
+```{r splitting training and testing data}
+set.seed(100)
+
+#Dividing the dataset into training and testing datasets
+testRows = sample(nrow(data),0.2*nrow(data))
+test = data[testRows, ]
+train = data[-testRows, ]
+attach(train)
+```
+
+## Exploratory Data Analysis (EDA)
+```{r correlation plot}
+cor <- cor(subset(train, select=-c(team, against)))
+corrplot(cor)
+
+```
+# Exploratory Data Analysis
+```{r Histogram of variables (starter stats)}
+par(mfrow = c(2, 4))
+hist(s_minutes, main='s_minutes', col=1)
+hist(s_3PM, main='s_3PM', col=2)
+hist(s_3PA, main='s_3PA', col=1)
+hist(s_FTM, main='s_FTM', col=2)
+hist(s_OREB, main='s_OREB', col=2)
+hist(s_DREB, main='s_DREB', col=1)
+hist(s_AST, main='s_AST', col=1)
+hist(s_STL, main='s_STL', col=2)
+hist(s_BLK, main='s_BLK', col=2)
+hist(s_TO, main='s_TO', col=1)
+hist(s_FOUL, main='s_FOUL', col=1)
+hist(s_2PM, main='s_2PM', col=1)
+hist(b_2PA, main='b_2PA', col=1)
+
+```
+Histograms in red shows heavy tails, and the variables are s_3PM, s_FTM, s_OREB, s_STL, and s_BLK. 
+
+```{r Histogram of variables (bench stats)}
+
+par(mfrow = c(2, 4))
+hist(b_3PM, main='b_3PM', col=2)
+hist(b_3PA, main='b_3PA', col=1)
+hist(b_FTM, main='b_FTM', col=2)
+hist(b_FTA, main='b_FTA', col=2)
+hist(b_OREB, main='b_OREB', col=2)
+hist(b_DREB, main='b_DREB', col=1)
+hist(b_AST, main='b_AST', col=2)
+hist(b_STL, main='b_STL', col=2)
+hist(b_BLK, main='b_BLK', col=2)
+hist(b_TO, main='b_TO', col=2)
+hist(b_FOUL, main='b_FOUL', col=2)
+hist(b_2PM, main='b_2PM', col=2)
+hist(b_2PA, main='b_2PA', col=1)
+```
+
+Most stats for bench players have heavy tails (in red). The exceptions are 3PA, DREB, and 2PA
+
+
+```{r Histogram of response variable and score at halftime}
+par(mfrow = c(1, 2))
+hist(PTS_ht, main='PTS_ht', col=1)
+hist(PTS_final, main='PTS_final', col=1)
+
+```
+
+Both are approximately normally distributed. 
+
+```{r Scatterplots of predicting variables vs. PTS_final (starter)}
+pairs(train[,c(3:7, 26)])
+pairs(train[,c(8:12, 26)])
+pairs(train[,c(13, 14, 28, 29, 26)])
+```
+
+
+## Variable Selection
+```{r Variable Selection 1 - stepwise regression with  BIC}
+model_min = lm(PTS_final ~ PTS_ht, data=train)
+model_full = lm(PTS_final ~ . -team -against, data=train) # Exclude teams for simplicity
+# Forward selection with BIC
+model_forward = step(model_min, scope=list(lower=model_min,  upper=model_full), direction="forward", trace=F, k=log(nrow(train)))
+summary(model_forward)
+
+# Backward selection
+model_backward = step(model_full, scope=list(lower=model_min,  upper=model_full), direction="backward", trace=F, k=log(nrow(train)))
+summary(model_backward)
+```
+
+BIC is used for variable selection because the goal of the model is mostly for prediction. Interestingly, only 1 additional variable (s_STL) is selected by model_forward, and 10 additional variables are selected by model_backward. 
+
+```{r Variable Selection 2 - Mallows Cp 1}
+out = leaps(train[, c(3:25, 27:32)], train[, 26], method = "Cp", strictly.compatible = F)
+cbind(as.matrix(out$which), out$Cp)
+best.model=which(out$Cp==min(out$Cp))
+cbind(as.matrix(out$which), out$Cp)[best.model,]
+```
+
+
+```{r Variable Selection 2 - Mallows Cp 2}
+model_cp = lm(PTS_final ~ s_minutes+s_3PM+s_3PA+s_FTA+s_OREB+s_DREB+s_STL+s_TO+b_3PA+b_AST+b_STL+b_TO+PTS_ht+s_2PA+b_2PA+home, data=train)
+summary(model_cp)
+```
+16 variables were selected using Mallow's Cp which is more than both forward (2) and backward (11) selection. 
+
+```{r Variable Selection 3 - LASSO 1}
+# Set a seed for reproducibility
+set.seed(1)
+
+# Set predictors and response to correct format
+x.train <- model.matrix(PTS_final ~ ., train[,c(3:32)])
+y.train <- train$PTS_final
+
+# Use cross validation to find optimal lambda
+cv.lasso <- cv.glmnet(x.train, y.train, alpha = 1)
+
+# Train Lasso and display coefficients with optimal lambda
+lasso.model <- glmnet(x.train, y.train, alpha = 1)
+coef(lasso.model, cv.lasso$lambda.min)
+```
+With LASSO, it removed s_FTM, s_FOUL, and b_OREB. A new model will be fit below to find coefficients. Furthermore, since multicollinearity may be a concern with our data, elastic net should also be attempted to fit model. 
+
+```{r Variable Selection 3 - LASSO 2}
+model_lasso = lm(PTS_final ~ . -s_FTM -s_FOUL -b_OREB, train[,c(3:32)])
+summary(model_lasso)
+```
+
+
+```{r Variable Selection 4 - Elastic Net 1}
+# Set a seed for reproducibility
+set.seed(1)
+
+# Set predictors and response to correct format
+x.train <- model.matrix(PTS_final ~ ., train[,c(3:32)])
+y.train <- train$PTS_final
+
+# Use cross validation to find optimal lambda
+cv.elasticnet <- cv.glmnet(x.train, y.train, alpha = 0.5)
+
+# Train Lasso and display coefficients with optimal lambda
+elasticnet.model <- glmnet(x.train, y.train, alpha = 0.5)
+coef(elasticnet.model, cv.elasticnet$lambda.min)
+```
+With elastic net variable selection, s_3PM, s_FTM, and s_FOUL were removed. Comparing with LASSO, same number (3) of variables were removed but 1 of them was different (b_OREB in lasso and s_3PM in elastic net). 
+
+```{r Variable Selection 4 - Elastic Net 2}
+model_net = lm(PTS_final ~ . -s_FTM -s_FOUL -s_3PM, train[,c(3:32)])
+summary(model_net)
+```
+
+```{r Variable Selection - Final}
+# Compare all selected models based on AIC, BIC, and adjusted R^2
+n = nrow(train)
+model_full_stats = list("Adj R2" = summary(model_full)$adj.r.squared, "AIC" = AIC(model_full, k=2), "BIC" = AIC(model_full, k=log(n)), "DF"=summary(model_full)$df[3])
+model_forward_stats = list("Adj R2" = summary(model_forward)$adj.r.squared, "AIC" = AIC(model_forward, k=2), "BIC" = AIC(model_forward, k=log(n)), "DF"=summary(model_forward)$df[3])
+model_backward_stats = list("Adj R2" = summary(model_backward)$adj.r.squared, "AIC" = AIC(model_backward, k=2), "BIC" = AIC(model_backward, k=log(n)), "DF"=summary(model_backward)$df[3])
+model_cp_stats = list("Adj R2" = summary(model_cp)$adj.r.squared, "AIC" = AIC(model_cp, k=2), "BIC" = AIC(model_cp, k=log(n)), "DF"=summary(model_cp)$df[3])
+model_lasso_stats = list("Adj R2" = summary(model_lasso)$adj.r.squared, "AIC" = AIC(model_lasso, k=2), "BIC" = AIC(model_lasso, k=log(n)), "DF"=summary(model_lasso)$df[3])
+model_net_stats = list("Adj R2" = summary(model_net)$adj.r.squared, "AIC" = AIC(model_net, k=2), "BIC" = AIC(model_net, k=log(n)), "DF"=summary(model_net)$df[3])
+model_compare = rbind(model_full_stats, model_forward_stats, model_backward_stats, model_cp_stats, model_lasso_stats, model_net_stats)
+model_compare
+
+```
+
+model_forward has the lowest BIC but also the lowest adjusted R^2 and highest AIC, which makes it not a good candidate. All other models have similar adjusted R^2. For AIC, all other models have similar values with model_cp and model_backward have the 2 lowest. For BIC, model_cp and model_backward have have the lowest 2 values. Therefore, we choose these 2 models as candidates for final model. 
+
+model_cp has 16 predictors while model_backward only has 11. For simplicity, we use model_backward as our model. 
+
+## Assess Model Assumption
+
+```{r Assess Model Assumption}
+
+
+```
+
+```{r }
+
+```
+
+```{r }
+
+```
+
+```{r }
+
+```
+
+```{r }
+
+```
+
+```{r }
+
+```
+
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
