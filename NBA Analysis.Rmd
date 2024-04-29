@@ -30,7 +30,7 @@ home_away: team is at home or away
 
 PTS_ht: team score at half time
 
-```{r load data}
+```{r load data, echo=FALSE}
 library(olsrr)
 library(stats)
 library(leaps)
@@ -47,8 +47,8 @@ attach(data)
 ### Clean and reformat data
 ```{r reformatting data}
 
-# Add s_2PM, s_2PA, b_2PM, and b_2PA and remove s_FGM, s_FGA, b_FGM, and b_FGA since FG includes both 2 pointers and 3 pointers
-data$s_2PM <- data$s_FGM - data$s_3PM
+# Add s_2PA, b_2PM, and b_2PA and remove s_FGM, s_FGA, b_FGM, and b_FGA since FG includes both 2 pointers and 3 pointers
+# s_2PM is not added because it'll cause multicolliearity
 data$s_2PA <- data$s_FGA - data$s_3PA
 data$b_2PM <- data$b_FGM - data$b_3PM
 data$b_2PA <- data$b_FGA - data$b_3PA
@@ -64,6 +64,10 @@ data = subset(data, select = -c(s_FGM, s_FGA, b_FGM, b_FGA, home_away, GAME_ID))
 data$team <- as.factor(data$team)
 data$against <- as.factor(data$against)
 
+# Move PTS_final to last column
+data$PTS_final1 = data$PTS_final
+data = subset(data, select = -PTS_final)
+names(data)[names(data) == "PTS_final1"] <- "PTS_final"
 ```
 
 ```{r splitting training and testing data}
@@ -84,7 +88,7 @@ corrplot(cor)
 ```
 # Exploratory Data Analysis
 ```{r Histogram of variables (starter stats)}
-par(mfrow = c(2, 4))
+par(mfrow = c(2, 3))
 hist(s_minutes, main='s_minutes', col=1)
 hist(s_3PM, main='s_3PM', col=2)
 hist(s_3PA, main='s_3PA', col=1)
@@ -96,14 +100,13 @@ hist(s_STL, main='s_STL', col=2)
 hist(s_BLK, main='s_BLK', col=2)
 hist(s_TO, main='s_TO', col=1)
 hist(s_FOUL, main='s_FOUL', col=1)
-hist(s_2PM, main='s_2PM', col=1)
 hist(b_2PA, main='b_2PA', col=1)
 
 ```
 Histograms in red shows heavy tails, and the variables are s_3PM, s_FTM, s_OREB, s_STL, and s_BLK. 
 
 ```{r Histogram of variables (bench stats)}
-
+# Histogram of variables (bench stats)
 par(mfrow = c(2, 4))
 hist(b_3PM, main='b_3PM', col=2)
 hist(b_3PA, main='b_3PA', col=1)
@@ -124,6 +127,7 @@ Most stats for bench players have heavy tails (in red). The exceptions are 3PA, 
 
 
 ```{r Histogram of response variable and score at halftime}
+# Histogram of response variable and score at halftime
 par(mfrow = c(1, 2))
 hist(PTS_ht, main='PTS_ht', col=1)
 hist(PTS_final, main='PTS_final', col=1)
@@ -133,16 +137,22 @@ hist(PTS_final, main='PTS_final', col=1)
 Both are approximately normally distributed. 
 
 ```{r Scatterplots of predicting variables vs. PTS_final (starter)}
-pairs(train[,c(3:7, 26)])
-pairs(train[,c(8:12, 26)])
-pairs(train[,c(13, 14, 28, 29, 26)])
+# Scatterplots of predicting variables vs. PTS_final (starter)
+pairs(train[,c(3:7, 31)])
+pairs(train[,c(8:12, 31)])
+pairs(train[,c(13:17, 31)])
+pairs(train[,c(18:22, 31)])
+pairs(train[,c(23:27, 31)])
+pairs(train[,c(28:30, 31)])
 ```
 
 
 ## Variable Selection
-```{r Variable Selection 1 - stepwise regression with  BIC}
-model_min = lm(PTS_final ~ PTS_ht, data=train)
+```{r Variable Selection 1 - stepwise regression with BIC}
+# Stepwise regression with BIC
+model_min = lm(PTS_final ~ PTS_ht, data=train) # Include PTS_ht as it's an obvious variable to include in the model
 model_full = lm(PTS_final ~ . -team -against, data=train) # Exclude teams for simplicity
+
 # Forward selection with BIC
 model_forward = step(model_min, scope=list(lower=model_min,  upper=model_full), direction="forward", trace=F, k=log(nrow(train)))
 summary(model_forward)
@@ -155,7 +165,8 @@ summary(model_backward)
 BIC is used for variable selection because the goal of the model is mostly for prediction. Interestingly, only 1 additional variable (s_STL) is selected by model_forward, and 10 additional variables are selected by model_backward. 
 
 ```{r Variable Selection 2 - Mallows Cp 1}
-out = leaps(train[, c(3:25, 27:32)], train[, 26], method = "Cp", strictly.compatible = F)
+# Mallows Cp 
+out = leaps(train[, c(3:30)], train[, 31], method = "Cp", strictly.compatible = F)
 cbind(as.matrix(out$which), out$Cp)
 best.model=which(out$Cp==min(out$Cp))
 cbind(as.matrix(out$which), out$Cp)[best.model,]
@@ -163,17 +174,20 @@ cbind(as.matrix(out$which), out$Cp)[best.model,]
 
 
 ```{r Variable Selection 2 - Mallows Cp 2}
+# Mallows Cp 
 model_cp = lm(PTS_final ~ s_minutes+s_3PM+s_3PA+s_FTA+s_OREB+s_DREB+s_STL+s_TO+b_3PA+b_AST+b_STL+b_TO+PTS_ht+s_2PA+b_2PA+home, data=train)
 summary(model_cp)
 ```
 16 variables were selected using Mallow's Cp which is more than both forward (2) and backward (11) selection. 
 
 ```{r Variable Selection 3 - LASSO 1}
+# LASSO - variable selection
+
 # Set a seed for reproducibility
 set.seed(1)
 
 # Set predictors and response to correct format
-x.train <- model.matrix(PTS_final ~ ., train[,c(3:32)])
+x.train <- model.matrix(PTS_final ~ ., train[,c(3:31)])
 y.train <- train$PTS_final
 
 # Use cross validation to find optimal lambda
@@ -183,20 +197,23 @@ cv.lasso <- cv.glmnet(x.train, y.train, alpha = 1)
 lasso.model <- glmnet(x.train, y.train, alpha = 1)
 coef(lasso.model, cv.lasso$lambda.min)
 ```
-With LASSO, it removed s_FTM, s_FOUL, and b_OREB. A new model will be fit below to find coefficients. Furthermore, since multicollinearity may be a concern with our data, elastic net should also be attempted to fit model. 
+With LASSO, it removed s_FTM and s_FOUL. A new model will be fit below to find coefficients. Furthermore, since multicollinearity may be a concern with our data, elastic net should also be attempted to fit model. 
 
 ```{r Variable Selection 3 - LASSO 2}
-model_lasso = lm(PTS_final ~ . -s_FTM -s_FOUL -b_OREB, train[,c(3:32)])
+# LASSO - fit model
+model_lasso = lm(PTS_final ~ . -s_FTM -s_FOUL, train[,c(3:31)])
 summary(model_lasso)
 ```
 
 
 ```{r Variable Selection 4 - Elastic Net 1}
+# Elastic Net - Variable Selection
+
 # Set a seed for reproducibility
 set.seed(1)
 
 # Set predictors and response to correct format
-x.train <- model.matrix(PTS_final ~ ., train[,c(3:32)])
+x.train <- model.matrix(PTS_final ~ ., train[,c(3:31)])
 y.train <- train$PTS_final
 
 # Use cross validation to find optimal lambda
@@ -206,10 +223,11 @@ cv.elasticnet <- cv.glmnet(x.train, y.train, alpha = 0.5)
 elasticnet.model <- glmnet(x.train, y.train, alpha = 0.5)
 coef(elasticnet.model, cv.elasticnet$lambda.min)
 ```
-With elastic net variable selection, s_3PM, s_FTM, and s_FOUL were removed. Comparing with LASSO, same number (3) of variables were removed but 1 of them was different (b_OREB in lasso and s_3PM in elastic net). 
+With elastic net variable selection, s_FTM and s_FOUL were removed. Comparing with LASSO, same variables were removed. 
 
 ```{r Variable Selection 4 - Elastic Net 2}
-model_net = lm(PTS_final ~ . -s_FTM -s_FOUL -s_3PM, train[,c(3:32)])
+# Elastic net - fit model
+model_net = lm(PTS_final ~ . -s_FTM -s_FOUL, train[,c(3:31)])
 summary(model_net)
 ```
 
@@ -227,7 +245,9 @@ model_compare
 
 ```
 
-model_forward has the lowest BIC but also the lowest adjusted R^2 and highest AIC, which makes it not a good candidate. All other models have similar adjusted R^2. For AIC, all other models have similar values with model_cp and model_backward have the 2 lowest. For BIC, model_cp and model_backward have have the lowest 2 values. Therefore, we choose these 2 models as candidates for final model. 
+model_forward has the lowest BIC but also the lowest adjusted R^2 and highest AIC, which makes it not a good candidate. 
+
+All other models have similar adjusted R^2. For AIC, all other models have similar values with model_cp and model_backward have the 2 lowest. For BIC, model_cp and model_backward have have the lowest 2 values. Therefore, we choose these 2 models as candidates for final model. 
 
 model_cp has 16 predictors while model_backward only has 11. For simplicity, we use model_backward as our model. 
 
