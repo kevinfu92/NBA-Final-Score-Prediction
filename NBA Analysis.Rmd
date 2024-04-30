@@ -253,17 +253,41 @@ model_cp has 16 predictors while model_backward only has 11. For simplicity, we 
 
 ## Assess Model Assumption
 
-```{r Assess Model Assumption}
+```{r Model Summary}
+# Display model summary
+summary(model_backward)
+
+```
+
+```{r }
+# Residual Analysis
+vars = all.vars(formula(model_backward))[-1]
+
+resids = stdres(model_backward)
+par(mfrow=(c(2,3)))
+
+for (v in vars) {
+  for (i in 1:dim(train)[-1]){
+    if (colnames(train[i]) == v){
+      plot(train[,i], resids, xlab=v, ylab='Residuals')
+      abline(0,0, col='red')
+    }
+  }
+}
+
 
 
 ```
 
 ```{r }
-
-```
-
-```{r }
-
+resids = stdres(model_backward)
+par(mfrow=(c(2,3)))
+plot(train$s_3PA, resids, xlab='s_3PA', ylab='Residuals')
+abline(0,0, col='red')
+plot(train$s_FTA, resids, xlab='s_FTA', ylab='Residuals')
+abline(0,0, col='red')
+plot(train$s_OREB, resids, xlab='s_OREB', ylab='Residuals')
+abline(0,0, col='red')
 ```
 
 ```{r }
