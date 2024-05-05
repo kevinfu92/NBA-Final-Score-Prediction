@@ -20,3 +20,6 @@ Python (NBA Data Cleaning.ipynb) was used to clean the data, and the following w
 Finally, the dataframe was exported as *NBA_2023_halftime_boxscore_data_for_analysis.csv* for analysis
 ### Data Analysis
 R (NBA Analysis.rmd) was used for data analysis, and it was knitted to *NBA-Analysis.html*. The steps and rationale of each step of analysis is included in the notebook. 
+
+### Conclusion
+We can use the model to place bet at halftime if the line set by sportsbook is outside the desired prediction level and profit from it. Since [nba_api](https://github.com/swar/nba_api) has much more data than just box score, advanced data can be used to built a more accurate model. Also, machine learning may be experimented to develop a model that is more accurate (but more complicated) than a regression model. 
