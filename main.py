@@ -159,5 +159,3 @@ def boxscore_at_HT(game_ids='game_id.csv', output_csv='NBA_2023_Halftime_Boxscor
 
     return final
 
-
-boxscore_at_HT(game_ids=[42300137], output_csv='NBA_2023_Halftime_Boxscore1.csv')

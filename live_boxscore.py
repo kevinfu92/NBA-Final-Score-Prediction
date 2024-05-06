@@ -1,5 +1,4 @@
 import os
-
 from nba_api.stats.endpoints import boxscoretraditionalv3
 from nba_api.stats.endpoints import leaguegamefinder
 from nba_api.live.nba.endpoints import scoreboard
@@ -9,6 +8,7 @@ pd.options.mode.chained_assignment = None  # default='warn'
 import numpy as np
 from nba_api.stats.static import teams
 import json
+import time
 from datetime import date
 from main import *
 import re
@@ -189,5 +189,3 @@ def get_gameids_today():
 
 
 get_gameids_today()
-
-
