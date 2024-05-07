@@ -8,7 +8,6 @@ pd.options.mode.chained_assignment = None  # default='warn'
 import numpy as np
 from nba_api.stats.static import teams
 import json
-import time
 from datetime import date
 from main import *
 import re
@@ -16,6 +15,7 @@ from scipy import stats
 import math
 import smtplib
 from email.mime.text import MIMEText
+
 
 csv_for_cleaning_name = str(date.today()) + '_nba_for_cleaning.csv'
 csv_for_analysis_name = str(date.today()) + '_nba_for_analysis.csv'
@@ -30,11 +30,13 @@ def live_boxscore(game_ids, csv):
                  'as_OREB', 'as_DREB', 'as_AST', 'as_STL', 'as_BLK', 'as_TO', 'as_FOUL',
                  'at_minutes', 'at_FGM', 'at_FGA', 'at_3PM', 'at_3PA', 'at_FTM', 'at_FTA',
                  'at_OREB', 'at_DREB', 'at_AST', 'at_STL', 'at_BLK', 'at_TO', 'at_FOUL'])
-
     for id in game_ids:
-        data = json.loads(boxscore.BoxScore(id).get_json())['game']
-        game_data = create_boxscore_df(data, id, 'live')
-        final.loc[len(final)] = game_data
+        try:
+            data = json.loads(boxscore.BoxScore(id).get_json())['game']
+            game_data = create_boxscore_df(data, id, 'live')
+            final.loc[len(final)] = game_data
+        except:
+            pass
 
     final.to_csv(csv, index=False)
 
@@ -119,7 +121,7 @@ def transform_data(input_csv, output_csv):
     final_df['home'] = final_df['home'].apply(lambda x: 1 if x=='home' else 0)
 
     final_df.to_csv(output_csv, index=False)
-def fit_model(input_csv=csv_for_analysis_name, output_csv=result_csv_name):
+def predict_with_model(input_csv=csv_for_analysis_name, output_csv=result_csv_name):
     '''
     See NBA-Analysis.html for model. All values were copies from the model
     :param csv: csv file name for analysis, string
@@ -134,7 +136,7 @@ def fit_model(input_csv=csv_for_analysis_name, output_csv=result_csv_name):
     pred_error = t_value * (MSE**0.5)
     # Convert b_FTM, b_OREB, b_STL to log(value)+1 for calculation
     for colname in ['b_FTM', 'b_OREB', 'b_STL']:
-        data[colname] = data[colname].apply(lambda x: math.log(x)+1)
+        data[colname] = data[colname].apply(lambda x: math.log(x+1))
 
 
     prediction = 43.5287 - 0.0907*data['s_minutes'] - 0.38002*data['s_3PM'] + 0.2126*data['s_3PA'] +\
@@ -178,14 +180,25 @@ def get_gameids_today():
     live_scoreboard = scoreboard.ScoreBoard()
     board = live_scoreboard.get_dict()
     for game in board['scoreboard']['games']:
-        # TODO Change and check status for halftime
-        if (game["period"] == 2 and game["gameClock"] == "PT00M00.00S") or (game['gameStatusText'].lower() == "halftime"):
+        # Check for games at halftime
+        if (game["period"] == 2 and game["gameClock"] == "PT00M00.00S") or (game['gameStatusText'].lower() == "half"):
             gameids_today.append(game['gameId'])
-    live_boxscore(gameids_today, csv=csv_for_cleaning_name)
-    transform_data(input_csv=csv_for_cleaning_name, output_csv=csv_for_analysis_name)
-    fit_model(csv_for_analysis_name, result_csv_name)
-    send_email()
+    # Check if there's any game at halftime
+    if len(gameids_today) > 0:
+        live_boxscore(gameids_today, csv=csv_for_cleaning_name)
+        transform_data(input_csv=csv_for_cleaning_name, output_csv=csv_for_analysis_name)
+        predict_with_model(csv_for_analysis_name, result_csv_name)
+        send_email()
 
 
+def fit_model(training_data='NBA_2023_halftime_boxscore_data_for_analysis.csv'):
+    '''
+    Fit linear regression model developed in 'NBA Analysis.Rmd' using python for prediction. Saves a pickle file of the model locally.
+    :param training_data: file name of csv used to train regression model, string
+    :return: None
+    '''
+    df = pd.read_csv(training_data)
+    pass
 
-get_gameids_today()
+# get_gameids_today()
+
