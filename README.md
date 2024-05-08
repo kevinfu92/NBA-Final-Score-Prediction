@@ -19,7 +19,7 @@ All data were pulled from [nba_api](https://github.com/swar/nba_api) (Credit to 
   
 Finally, the dataframe was exported as *NBA_2023_halftime_boxscore_data_for_analysis.csv* for analysis
 ### Data Analysis & Visualization
-*NBA Analysis.rmd* (R) was used for data analysis, and it was knitted to *NBA-Analysis.html*. The steps and rationale of each step of analysis is included in the notebook. 
+*NBA Analysis.rmd* (R) was used for data analysis, and it was knitted to *NBA-Analysis.html*. The steps and rationale of each step of analysis is included in the notebook. The data was then trained using the parameters selected in python and saved as a pickle file to be use for modeling. 
 
 ### Perform Prediction
 *live_boxscore.py* (python) was developed to checks if any of the games are at halftime currently, and if so, perform the following tasks in order: pull boxscore, predict final scores, and send predictions via email. 
@@ -27,4 +27,4 @@ Finally, the dataframe was exported as *NBA_2023_halftime_boxscore_data_for_anal
 ## Conclusion
 We can use the model to place bet at halftime if the line set by sportsbook is outside the desired prediction level and profit from it. Since [nba_api](https://github.com/swar/nba_api) has much more data than just box score, advanced data can be used to built a more accurate model. Also, machine learning may be experimented to develop a model that is more accurate (but more complicated) than a regression model. 
 
-Furthermore, we can use an API to access the live betting line and compare against prediction. 
+Furthermore, we can use an API to access the live betting line and compare against prediction, and only send notification when the betting line is outside the prediction interval. 
