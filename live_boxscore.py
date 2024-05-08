@@ -15,7 +15,11 @@ from scipy import stats
 import math
 import smtplib
 from email.mime.text import MIMEText
-
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+import pickle
 
 csv_for_cleaning_name = str(date.today()) + '_nba_for_cleaning.csv'
 csv_for_analysis_name = str(date.today()) + '_nba_for_analysis.csv'
@@ -41,7 +45,6 @@ def live_boxscore(game_ids, csv):
     final.to_csv(csv, index=False)
 
     return final
-
 
 def transform_data(input_csv, output_csv):
     '''
@@ -127,29 +130,16 @@ def predict_with_model(input_csv=csv_for_analysis_name, output_csv=result_csv_na
     :param csv: csv file name for analysis, string
     :return: No return. Generates results and output to a csv file
     '''
-    # Model = PTS_final ~ s_minutes + s_3PM + s_3PA + s_DREB + s_BLK + s_TO + log(b_FTM + 1) + log(b_OREB + 1) +
-    #   #   b_DREB +  b_AST + log(b_STL + 1) + b_FOUL + PTS_ht + PTS_ht_opp + home
     data = pd.read_csv(input_csv)
-    # TODO fix this prediction interval. this is a very rough estimate
-    t_value = stats.t.ppf(0.875, 1950) #75% confidence interval
-    MSE = 8.844
-    pred_error = t_value * (MSE**0.5)
     # Convert b_FTM, b_OREB, b_STL to log(value)+1 for calculation
     for colname in ['b_FTM', 'b_OREB', 'b_STL']:
         data[colname] = data[colname].apply(lambda x: math.log(x+1))
-
-
-    prediction = 43.5287 - 0.0907*data['s_minutes'] - 0.38002*data['s_3PM'] + 0.2126*data['s_3PA'] +\
-                  0.23784*data['s_DREB'] + 0.19932*data['s_BLK'] + 0.20365*data['s_TO'] -\
-                  0.55545*data['b_FTM'] + 0.76769*data['b_OREB'] + 0.37672*data['b_DREB'] - \
-                  0.1769*data['b_AST'] - 0.56588*data['b_STL'] + 0.1734*data['b_FOUL'] + \
-                  1.04884*data['PTS_ht'] + 0.18728*data['PTS_ht_opp'] + 1.02333*data['home']
-
-    data['pred_lb'] = round(prediction - pred_error, 1)
-    data['pred'] = round(prediction, 1)
-    data['pred_ub'] = round(prediction + pred_error, 1)
-    data = data[['team', 'against', 'PTS_ht', 'pred_lb', 'pred', 'pred_ub']]
-    data.loc['total'] = data.sum()
+    # Load model
+    with open('model.pkl', 'rb') as f:
+        model = pickle.load(f)
+    pred_interval = model.get_prediction(data).summary_frame(alpha=0.2).map(lambda x: round(x, 1))
+    data = pred_interval[['mean', 'obs_ci_lower', 'obs_ci_upper']]
+    print(data)
     data.to_csv(output_csv, index=False)
 
 def send_email():
@@ -173,7 +163,6 @@ def send_email():
         server.login(sender_email, sender_password)
         server.sendmail(sender_email, recipient_email, html_message.as_string())
 
-
 # Uses 2023 Playoff Games to test this function
 def get_gameids_today():
     gameids_today = []
@@ -190,15 +179,27 @@ def get_gameids_today():
         predict_with_model(csv_for_analysis_name, result_csv_name)
         send_email()
 
-
 def fit_model(training_data='NBA_2023_halftime_boxscore_data_for_analysis.csv'):
     '''
     Fit linear regression model developed in 'NBA Analysis.Rmd' using python for prediction. Saves a pickle file of the model locally.
     :param training_data: file name of csv used to train regression model, string
     :return: None
     '''
+    # Model = PTS_final ~ s_minutes + s_3PM + s_3PA + s_DREB + s_BLK + s_TO + log(b_FTM + 1) + log(b_OREB + 1) +
+    #   b_DREB +  b_AST + log(b_STL + 1) + b_FOUL + PTS_ht + PTS_ht_opp + home
     df = pd.read_csv(training_data)
-    pass
+    # Create dummy variable for home_away
+    df['home'] = df['home_away'].apply(lambda x: 1 if x == 'home' else 0)
 
-# get_gameids_today()
+    # Convert b_FTM, b_OREB, b_STL to log(value)+1 for calculation
+    for colname in ['b_FTM', 'b_OREB', 'b_STL']:
+        df[colname] = df[colname].apply(lambda x: math.log(x+1))
+    # Train model
+    reg = smf.ols(formula='PTS_final ~ s_minutes + s_3PM + s_3PA + s_DREB + s_BLK + s_TO + b_FTM + b_OREB + b_DREB +\
+     b_AST + b_STL + b_FOUL + PTS_ht + PTS_ht_opp + home', data=df).fit()
+    # Save model to model.pkl
+    with open('model.pkl', 'wb') as f:
+        pickle.dump(reg, f)
+
+get_gameids_today()
 
