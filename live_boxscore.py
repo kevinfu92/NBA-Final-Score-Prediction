@@ -1,6 +1,4 @@
 import os
-from nba_api.stats.endpoints import boxscoretraditionalv3
-from nba_api.stats.endpoints import leaguegamefinder
 from nba_api.live.nba.endpoints import scoreboard
 from nba_api.live.nba.endpoints import boxscore
 import pandas as pd
@@ -15,10 +13,7 @@ from scipy import stats
 import math
 import smtplib
 from email.mime.text import MIMEText
-import statsmodels.api as sm
 import statsmodels.formula.api as smf
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
 import pickle
 
 csv_for_cleaning_name = str(date.today()) + '_nba_for_cleaning.csv'
@@ -115,7 +110,7 @@ def transform_data(input_csv, output_csv):
     opp_pts = final_df[['GAME_ID_agst', 'PTS_ht']]
     # Merge final_df and opp_pts
     final_df = final_df.merge(opp_pts, left_on='GAME_ID_team', right_on='GAME_ID_agst')
-    # Drop uncessary columns
+    # Drop unnecessary columns
     final_df.drop(columns=['GAME_ID_team', 'GAME_ID_agst_x', 'GAME_ID_agst_y'], inplace=True)
     # Rename columns
     final_df.rename(columns={'PTS_ht_y': 'PTS_ht_opp', 'PTS_ht_x': 'PTS_ht'}, inplace=True)
@@ -137,10 +132,11 @@ def predict_with_model(input_csv=csv_for_analysis_name, output_csv=result_csv_na
     # Load model
     with open('model.pkl', 'rb') as f:
         model = pickle.load(f)
+    # Predict and get 80% prediction interval as indicated from R analysis
     pred_interval = model.get_prediction(data).summary_frame(alpha=0.2).map(lambda x: round(x, 1))
-    data = pred_interval[['mean', 'obs_ci_lower', 'obs_ci_upper']]
-    print(data)
-    data.to_csv(output_csv, index=False)
+    predictions = pd.DataFrame({'Team': data['team'], 'Score':data['PTS_ht']})
+    predictions = pd.concat([predictions, pred_interval[['mean', 'obs_ci_lower', 'obs_ci_upper']]], axis=1)
+    predictions.to_csv(output_csv, index=False)
 
 def send_email():
     sender_email = os.environ['sender_email']
